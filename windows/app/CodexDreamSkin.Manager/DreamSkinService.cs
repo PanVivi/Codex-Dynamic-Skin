@@ -19,7 +19,8 @@ internal sealed class DreamSkinService
     var result = await _runner.RunScriptAsync(
       _runtime.StartScript,
       new[] { "-Port", "9335", "-PromptRestart" },
-      cancellationToken);
+      cancellationToken,
+      captureOutput: false);
     result.ThrowIfFailed("启动 Codex 动态壁纸");
   }
 

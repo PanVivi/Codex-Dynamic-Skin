@@ -849,6 +849,36 @@ try {
       throw "Graphical manager status contract is missing: $managerStatusContract"
     }
   }
+  $managerRunnerSource = Read-DreamSkinUtf8File -Path (
+    Join-Path $Root 'app\CodexDreamSkin.Manager\PowerShellRunner.cs'
+  )
+  foreach ($managerRunnerContract in @(
+    'bool captureOutput = true',
+    'if (!captureOutput)',
+    'new ProcessResult(process.ExitCode, string.Empty, string.Empty)'
+  )) {
+    if (-not $managerRunnerSource.Contains($managerRunnerContract)) {
+      throw "Graphical manager process runner contract is missing: $managerRunnerContract"
+    }
+  }
+  $managerServiceSource = Read-DreamSkinUtf8File -Path (
+    Join-Path $Root 'app\CodexDreamSkin.Manager\DreamSkinService.cs'
+  )
+  if ([regex]::Matches($managerServiceSource, 'captureOutput: false').Count -ne 1) {
+    throw 'Graphical manager startup still captures inheritable output pipes.'
+  }
+  $managerProgramSource = Read-DreamSkinUtf8File -Path (
+    Join-Path $Root 'app\CodexDreamSkin.Manager\Program.cs'
+  )
+  foreach ($managerRunnerSelfTestContract in @(
+    'RunnerReturnsAfterParentExit',
+    'child.pid',
+    '-RedirectStandardOutput $stdout -RedirectStandardError $stderr'
+  )) {
+    if (-not $managerProgramSource.Contains($managerRunnerSelfTestContract)) {
+      throw "Graphical manager output-pipe self-test is missing: $managerRunnerSelfTestContract"
+    }
+  }
 
   $traySource = Read-DreamSkinUtf8File -Path (Join-Path $Root 'scripts\tray-dream-skin.ps1')
   foreach ($requiredTrayAction in @('System.Windows.Forms.NotifyIcon', 'System.Windows.Forms.TrackBar', '壁纸透出', '暂停皮肤', '更换背景图或视频', '*.mp4;*.webm', '已保存主题', '完全恢复 Codex')) {

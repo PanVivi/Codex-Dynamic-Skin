@@ -1,5 +1,11 @@
 # Windows Changelog
 
+## Unreleased
+
+### 修复
+
+- 图形管理器启动 Codex 后不再等待被后台注入器继承的 stdout/stderr 管道，避免界面长期停在“正在启动”并禁用壁纸切换。
+
 ## 1.1.0 — 2026-07-19
 
 ### 新增

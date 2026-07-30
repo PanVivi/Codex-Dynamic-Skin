@@ -12,7 +12,8 @@ internal sealed record ProcessResult(int ExitCode, string StandardOutput, string
     }
 
     var detail = string.IsNullOrWhiteSpace(StandardError) ? StandardOutput : StandardError;
-    throw new InvalidOperationException($"{operation}失败（{ExitCode}）：{detail.Trim()}");
+    var suffix = string.IsNullOrWhiteSpace(detail) ? string.Empty : $"：{detail.Trim()}";
+    throw new InvalidOperationException($"{operation}失败（{ExitCode}）{suffix}");
   }
 }
 
@@ -39,7 +40,8 @@ internal sealed class PowerShellRunner
   public async Task<ProcessResult> RunScriptAsync(
     string script,
     IEnumerable<string> arguments,
-    CancellationToken cancellationToken = default)
+    CancellationToken cancellationToken = default,
+    bool captureOutput = true)
   {
     var startInfo = new ProcessStartInfo
     {
@@ -47,11 +49,14 @@ internal sealed class PowerShellRunner
       WorkingDirectory = _runtime.PayloadRoot,
       UseShellExecute = false,
       CreateNoWindow = true,
-      RedirectStandardOutput = true,
-      RedirectStandardError = true,
-      StandardOutputEncoding = System.Text.Encoding.UTF8,
-      StandardErrorEncoding = System.Text.Encoding.UTF8,
     };
+    if (captureOutput)
+    {
+      startInfo.RedirectStandardOutput = true;
+      startInfo.RedirectStandardError = true;
+      startInfo.StandardOutputEncoding = System.Text.Encoding.UTF8;
+      startInfo.StandardErrorEncoding = System.Text.Encoding.UTF8;
+    }
     startInfo.ArgumentList.Add("-NoProfile");
     startInfo.ArgumentList.Add("-ExecutionPolicy");
     startInfo.ArgumentList.Add("Bypass");
@@ -68,6 +73,12 @@ internal sealed class PowerShellRunner
 
     using var process = new Process { StartInfo = startInfo };
     process.Start();
+    if (!captureOutput)
+    {
+      await process.WaitForExitAsync(cancellationToken);
+      return new ProcessResult(process.ExitCode, string.Empty, string.Empty);
+    }
+
     var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
     var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
     await process.WaitForExitAsync(cancellationToken);
