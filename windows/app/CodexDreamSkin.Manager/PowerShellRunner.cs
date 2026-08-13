@@ -12,8 +12,7 @@ internal sealed record ProcessResult(int ExitCode, string StandardOutput, string
     }
 
     var detail = string.IsNullOrWhiteSpace(StandardError) ? StandardOutput : StandardError;
-    var suffix = string.IsNullOrWhiteSpace(detail) ? string.Empty : $"：{detail.Trim()}";
-    throw new InvalidOperationException($"{operation}失败（{ExitCode}）{suffix}");
+    throw new InvalidOperationException($"{operation}失败（{ExitCode}）：{detail.Trim()}");
   }
 }
 
@@ -73,15 +72,29 @@ internal sealed class PowerShellRunner
 
     using var process = new Process { StartInfo = startInfo };
     process.Start();
-    if (!captureOutput)
+    var outputTask = captureOutput
+      ? process.StandardOutput.ReadToEndAsync(cancellationToken)
+      : Task.FromResult(string.Empty);
+    var errorTask = captureOutput
+      ? process.StandardError.ReadToEndAsync(cancellationToken)
+      : Task.FromResult(string.Empty);
+    try
     {
       await process.WaitForExitAsync(cancellationToken);
+    }
+    catch (OperationCanceledException)
+    {
+      if (!process.HasExited)
+      {
+        process.Kill(entireProcessTree: true);
+        await process.WaitForExitAsync(CancellationToken.None);
+      }
+      throw;
+    }
+    if (!captureOutput)
+    {
       return new ProcessResult(process.ExitCode, string.Empty, string.Empty);
     }
-
-    var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-    var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
-    await process.WaitForExitAsync(cancellationToken);
     return new ProcessResult(
       process.ExitCode,
       await outputTask,
