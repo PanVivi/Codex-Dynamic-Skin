@@ -39,7 +39,8 @@ internal sealed class PowerShellRunner
   public async Task<ProcessResult> RunScriptAsync(
     string script,
     IEnumerable<string> arguments,
-    CancellationToken cancellationToken = default)
+    CancellationToken cancellationToken = default,
+    bool captureOutput = true)
   {
     var startInfo = new ProcessStartInfo
     {
@@ -47,11 +48,14 @@ internal sealed class PowerShellRunner
       WorkingDirectory = _runtime.PayloadRoot,
       UseShellExecute = false,
       CreateNoWindow = true,
-      RedirectStandardOutput = true,
-      RedirectStandardError = true,
-      StandardOutputEncoding = System.Text.Encoding.UTF8,
-      StandardErrorEncoding = System.Text.Encoding.UTF8,
     };
+    if (captureOutput)
+    {
+      startInfo.RedirectStandardOutput = true;
+      startInfo.RedirectStandardError = true;
+      startInfo.StandardOutputEncoding = System.Text.Encoding.UTF8;
+      startInfo.StandardErrorEncoding = System.Text.Encoding.UTF8;
+    }
     startInfo.ArgumentList.Add("-NoProfile");
     startInfo.ArgumentList.Add("-ExecutionPolicy");
     startInfo.ArgumentList.Add("Bypass");
@@ -68,9 +72,29 @@ internal sealed class PowerShellRunner
 
     using var process = new Process { StartInfo = startInfo };
     process.Start();
-    var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-    var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
-    await process.WaitForExitAsync(cancellationToken);
+    var outputTask = captureOutput
+      ? process.StandardOutput.ReadToEndAsync(cancellationToken)
+      : Task.FromResult(string.Empty);
+    var errorTask = captureOutput
+      ? process.StandardError.ReadToEndAsync(cancellationToken)
+      : Task.FromResult(string.Empty);
+    try
+    {
+      await process.WaitForExitAsync(cancellationToken);
+    }
+    catch (OperationCanceledException)
+    {
+      if (!process.HasExited)
+      {
+        process.Kill(entireProcessTree: true);
+        await process.WaitForExitAsync(CancellationToken.None);
+      }
+      throw;
+    }
+    if (!captureOutput)
+    {
+      return new ProcessResult(process.ExitCode, string.Empty, string.Empty);
+    }
     return new ProcessResult(
       process.ExitCode,
       await outputTask,
