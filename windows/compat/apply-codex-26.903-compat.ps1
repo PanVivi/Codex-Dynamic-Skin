@@ -7,6 +7,8 @@ $ErrorActionPreference = 'Stop'
 $windowsRoot = Split-Path -Parent $PSScriptRoot
 $injectorPath = Join-Path $windowsRoot 'scripts\injector.mjs'
 $rendererPath = Join-Path $windowsRoot 'assets\renderer-inject.js'
+$bootstrapTestPath = Join-Path $windowsRoot 'tests\injector-bootstrap.test.mjs'
+$rendererTestPath = Join-Path $windowsRoot 'tests\renderer-inject.test.mjs'
 $utf8 = [System.Text.UTF8Encoding]::new($false)
 
 function Replace-Exact {
@@ -88,6 +90,28 @@ $newCleanup = @'
 $renderer = Replace-Exact $renderer $oldCleanup $newCleanup 'renderer alias cleanup'
 [System.IO.File]::WriteAllText($rendererPath, $renderer, $utf8)
 
+# The upstream regression fixtures model the old selector literally. Teach those
+# fixtures about the additional semantic selector so the same tests exercise the
+# compatibility path rather than failing before the payload can run.
+$bootstrapTest = [System.IO.File]::ReadAllText($bootstrapTestPath)
+$bootstrapTest = Replace-Exact $bootstrapTest `
+  '        if (selector === "main.main-surface") return markers.shell ? {} : null;' `
+  '        if (selector === "main.main-surface" || selector === ''main.main-surface, main:has([role="main"])'') return markers.shell ? {} : null;' `
+  'bootstrap fixture semantic shell'
+[System.IO.File]::WriteAllText($bootstrapTestPath, $bootstrapTest, $utf8)
+
+$rendererTest = [System.IO.File]::ReadAllText($rendererTestPath)
+$oldRendererFixture = '      if (selector === "main.main-surface") return hasShell ? shellMain : null;'
+$newRendererFixture = @'
+      if (selector === "main.main-surface" ||
+          selector === "main:has([role='main'])" ||
+          selector === "main.main-surface, main:has([role='main'])") {
+        return hasShell ? shellMain : null;
+      }
+'@.TrimEnd()
+$rendererTest = Replace-Exact $rendererTest $oldRendererFixture $newRendererFixture 'renderer fixture semantic shell'
+[System.IO.File]::WriteAllText($rendererTestPath, $rendererTest, $utf8)
+
 # Fail fast if the resulting source is incomplete or still depends exclusively
 # on the legacy shell/composer markers.
 $checks = @(
@@ -95,7 +119,9 @@ $checks = @(
   @{ Path = $injectorPath; Pattern = '\[role="textbox"\]' },
   @{ Path = $rendererPath; Pattern = 'codex-dream-skin-main-alias' },
   @{ Path = $rendererPath; Pattern = 'codex-dream-skin-composer-alias' },
-  @{ Path = $rendererPath; Pattern = '_ComposerLayoutRoot_' }
+  @{ Path = $rendererPath; Pattern = '_ComposerLayoutRoot_' },
+  @{ Path = $bootstrapTestPath; Pattern = 'main\.main-surface, main:has' },
+  @{ Path = $rendererTestPath; Pattern = 'main:has' }
 )
 foreach ($check in $checks) {
   if (-not [regex]::IsMatch([System.IO.File]::ReadAllText($check.Path), $check.Pattern)) {
