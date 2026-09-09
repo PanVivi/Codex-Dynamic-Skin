@@ -1,0 +1,76 @@
+name: Build Codex 26.903 compatibility manager
+
+on:
+  push:
+    branches:
+      - fix/codex-26.903-compat
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    name: Build Windows x64 manager
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Apply Codex 26.903 compatibility layer
+        shell: powershell
+        run: |
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass `
+            -File .\windows\compat\apply-codex-26.903-compat.ps1
+
+      - name: Check patched JavaScript syntax
+        shell: powershell
+        run: |
+          node --check .\windows\scripts\injector.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --check .\windows\assets\renderer-inject.js
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run portable Windows Node regressions
+        shell: powershell
+        run: |
+          node --test .\windows\tests\*.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node .\windows\scripts\injector.mjs --check-payload
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build self-contained manager
+        shell: powershell
+        run: |
+          powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass `
+            -File .\windows\app\build-manager.ps1 `
+            -OutputDirectory .\windows\dist
+
+      - name: Show build hash
+        shell: powershell
+        run: |
+          Get-Content .\windows\dist\CodexDreamSkinManager.exe.sha256
+          Get-Item .\windows\dist\CodexDreamSkinManager.exe | `
+            Select-Object Name, Length, LastWriteTime
+
+      - name: Upload Windows manager
+        uses: actions/upload-artifact@v4
+        with:
+          name: CodexDreamSkinManager-codex-26.903-compat
+          path: |
+            windows/dist/CodexDreamSkinManager.exe
+            windows/dist/CodexDreamSkinManager.exe.sha256
+          if-no-files-found: error
+          retention-days: 30
