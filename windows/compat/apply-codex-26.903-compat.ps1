@@ -25,29 +25,29 @@ function Replace-Exact {
   return $Text.Replace($Old, $New)
 }
 
-# injector.mjs: accept the post-26.903 semantic shell and textbox while preserving
-# the legacy selectors for older Codex builds.
+# injector.mjs: accept both legacy Codex shell markers and the semantic shell
+# observed on Codex 26.903.8094.0. Keep the old selectors for backward compatibility.
 $injector = [System.IO.File]::ReadAllText($injectorPath)
 $injector = Replace-Exact $injector `
   "      shell: Boolean(document.querySelector('main.main-surface'))," `
-  "      shell: Boolean(document.querySelector('main.main-surface, main:has([role=`"main`"] )'.replace('] )', '])')))," `
+  '      shell: Boolean(document.querySelector(''main.main-surface, main:has([role="main"])'')),' `
   'injector probe shell'
 $injector = Replace-Exact $injector `
   "      composer: Boolean(document.querySelector('.composer-surface-chrome'))," `
-  "      composer: Boolean(document.querySelector('.composer-surface-chrome, [role=`"textbox`"]'))," `
+  '      composer: Boolean(document.querySelector(''.composer-surface-chrome, [role="textbox"]'')),' `
   'injector probe composer'
 $injector = Replace-Exact $injector `
   "      const shell = document.querySelector('main.main-surface');" `
-  "      const shell = document.querySelector('main.main-surface, main:has([role=`"main`"] )'.replace('] )', '])'));" `
+  '      const shell = document.querySelector(''main.main-surface, main:has([role="main"])'');' `
   'injector early shell'
 $injector = Replace-Exact $injector `
   "      composer: box(document.querySelector('.composer-surface-chrome'))," `
-  "      composer: box(document.querySelector('.composer-surface-chrome, [role=`"textbox`"]'))," `
+  '      composer: box(document.querySelector(''.composer-surface-chrome, [role="textbox"]'')),' `
   'injector verify composer'
 [System.IO.File]::WriteAllText($injectorPath, $injector, $utf8)
 
-# renderer-inject.js: restore the stable legacy class hooks at runtime instead of
-# depending on the hashed CSS-module suffixes used by Codex 26.903.
+# renderer-inject.js: for post-26.903 builds, restore stable legacy class hooks at
+# runtime. This avoids depending on Codex CSS-module suffixes such as _ihb90_2.
 $renderer = [System.IO.File]::ReadAllText($rendererPath)
 $renderer = Replace-Exact $renderer `
   '    const shellPresent = Boolean(document.querySelector("main.main-surface"));' `
@@ -56,13 +56,16 @@ $renderer = Replace-Exact $renderer `
 
 $oldShell = '    const shellMain = document.querySelector("main.main-surface");'
 $newShell = @'
-    const shellMain = document.querySelector("main.main-surface, main:has([role='main'])");
-    if (shellMain && !shellMain.classList.contains("main-surface")) {
+    const legacyShellMain = document.querySelector("main.main-surface");
+    const shellMain = legacyShellMain || document.querySelector("main:has([role='main'])");
+    if (shellMain && !legacyShellMain) {
       shellMain.classList.add("main-surface", "codex-dream-skin-main-alias");
     }
-    const composerSurface = document.querySelector(".composer-surface-chrome") ||
-      document.querySelector('[role="textbox"]')?.closest?.('[class*="_ComposerLayoutRoot_"]') || null;
-    if (composerSurface && !composerSurface.classList.contains("composer-surface-chrome")) {
+    const legacyComposerSurface = document.querySelector(".composer-surface-chrome");
+    const composerSurface = legacyComposerSurface ||
+      document.querySelector('[role="textbox"]')?.closest?.('[class*="_ComposerLayoutRoot_"]') ||
+      document.querySelector('[role="textbox"]') || null;
+    if (composerSurface && !legacyComposerSurface) {
       composerSurface.classList.add("composer-surface-chrome", "codex-dream-skin-composer-alias");
     }
 '@.TrimEnd()
@@ -85,7 +88,8 @@ $newCleanup = @'
 $renderer = Replace-Exact $renderer $oldCleanup $newCleanup 'renderer alias cleanup'
 [System.IO.File]::WriteAllText($rendererPath, $renderer, $utf8)
 
-# Fail fast if the resulting files do not contain the compatibility markers.
+# Fail fast if the resulting source is incomplete or still depends exclusively
+# on the legacy shell/composer markers.
 $checks = @(
   @{ Path = $injectorPath; Pattern = 'main:has\(\[role="main"\]\)' },
   @{ Path = $injectorPath; Pattern = '\[role="textbox"\]' },
